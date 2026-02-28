@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>BowlIQ v2 — AI Cricket Bowling Analyzer</title>
+<!-- TensorFlow.js + MoveNet Pose Detection -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+<style>
+:root{--bg:#0a0e1a;--card:#111827;--cb:#1e293b;--g:#00ff88;--gd:#00ff8833;--r:#ff4466;--o:#ffaa33;--b:#3399ff;--t:#e2e8f0;--td:#94a3b8;--w:#fff}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-overflow-scrolling:touch}
+body{background:var(--bg);color:var(--t);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif;min-height:100vh;min-height:100dvh;overflow-x:hidden;padding-bottom:env(safe-area-inset-bottom);-webkit-text-size-adjust:100%}
+.hidden{display:none!important}
+
+/* Blocker */
+#blocker{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;text-align:center}
+#blocker h1{font-size:22px;font-weight:900;margin-bottom:12px}
+#blocker .ic{font-size:56px;margin-bottom:16px}
+#blocker p{color:var(--td);font-size:14px;line-height:1.7;margin-bottom:10px;max-width:420px}
+#blocker .box{background:var(--card);border:1px solid var(--cb);border-radius:12px;padding:20px;text-align:left;width:100%;max-width:420px;margin-top:8px}
+#blocker .st{display:flex;gap:12px;margin-bottom:12px}
+#blocker .sn{width:26px;height:26px;border-radius:50%;background:var(--gd);color:var(--g);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+#blocker .sx{font-size:13px;line-height:1.5}#blocker .sx strong{color:var(--g)}
+
+/* Header */
+.hdr{background:linear-gradient(135deg,var(--bg),#0f172a);border-bottom:1px solid var(--cb);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.hdr-l{display:flex;align-items:center;gap:10px}
+.logo{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--r),#cc2244);display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 0 12px #ff446644}
+.logo-t{font-weight:800;font-size:17px;letter-spacing:-.5px}.logo-t span{color:var(--g)}
+.logo-s{font-size:9px;color:var(--td);letter-spacing:1.5px}
+.badge{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:16px;font-size:10px;font-family:monospace}
+.dot{width:7px;height:7px;border-radius:50%}
+
+/* Buttons */
+.btn{border:none;border-radius:12px;font-weight:700;font-size:15px;cursor:pointer;font-family:inherit;width:100%;min-height:50px;touch-action:manipulation;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:8px}
+.btn:active{transform:scale(.96)}
+.btn-g{background:linear-gradient(135deg,var(--g),#00cc6a);color:#000;box-shadow:0 4px 16px #00ff8844}
+.btn-c{background:var(--card);color:var(--t);border:1px solid var(--cb)}
+.btn-c:active{background:#1a2332}
+.btn-r{background:#ff446622;color:var(--r);border:1px solid #ff446644}
+.btn-sm{min-height:42px;font-size:13px;padding:0 16px;width:auto}
+
+/* Cards & Layout */
+.card{background:var(--card);border:1px solid var(--cb);border-radius:12px;padding:14px;position:relative;overflow:hidden}
+.glow{position:absolute;top:0;left:0;right:0;height:2px}
+.lbl{color:var(--td);font-size:10px;text-transform:uppercase;letter-spacing:1.2px;font-family:monospace}
+.val{font-size:1.5rem;font-weight:700;text-shadow:0 0 10px currentColor}
+.unit{font-size:11px;color:var(--td);font-family:monospace}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.row{display:flex;gap:8px}.f1{flex:1}
+.sec{padding:14px}.sec-t{font-size:13px;font-weight:700;color:var(--td);margin-bottom:10px}
+
+/* Video */
+.vidbox{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--cb);background:#000}
+.vidbox video{width:100%;display:block;background:#000;max-height:55vh;object-fit:cover}
+.vidbox canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+.ovl-speed{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.85);border-radius:10px;padding:6px 12px;backdrop-filter:blur(8px);border:1px solid #00ff8844;z-index:10}
+.ovl-phase{position:absolute;top:10px;left:10px;background:rgba(0,0,0,.85);border-radius:10px;padding:6px 12px;backdrop-filter:blur(8px);border:1px solid var(--cb);z-index:10;font-size:12px;font-family:monospace}
+.ovl-arm{position:absolute;bottom:10px;left:10px;background:rgba(0,0,0,.85);border-radius:10px;padding:6px 12px;backdrop-filter:blur(8px);border:1px solid var(--cb);z-index:10;font-size:11px;font-family:monospace}
+.calib-ovl{position:absolute;top:0;left:0;right:0;bottom:0;cursor:crosshair;z-index:10}
+.calib-dot{position:absolute;width:20px;height:20px;border-radius:50%;border:3px solid var(--g);background:#00ff8844;pointer-events:none;transform:translate(-10px,-10px);z-index:11;box-shadow:0 0 12px #00ff8866}
+.calib-msg{background:#00ff8815;border:1px solid #00ff8833;border-radius:10px;padding:10px;text-align:center;margin-bottom:10px;font-size:13px;color:var(--g)}
+
+/* Loading */
+.loader{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;text-align:center}
+.spinner{width:40px;height:40px;border:3px solid var(--cb);border-top:3px solid var(--g);border-radius:50%;animation:spin 1s linear infinite;margin-bottom:16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Delivery log */
+.drow{display:flex;align-items:center;gap:8px;padding:10px;background:rgba(10,14,26,.5);border-radius:8px;font-size:11px;margin-bottom:6px;font-family:monospace;flex-wrap:wrap}
+.footer{text-align:center;padding:20px 16px calc(16px + env(safe-area-inset-bottom));color:var(--td);font-size:10px;font-family:monospace}
+.speed-chart-scroll{overflow-x:auto}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.afade{animation:fadeIn .4s ease}
+
+@media(max-width:400px){.g4{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}.val{font-size:1.2rem}.hdr{padding:10px 12px}.sec{padding:10px}}
+@media(max-width:350px){.g3{grid-template-columns:1fr}.g2{grid-template-columns:1fr}}
+@media(orientation:landscape){.vidbox video{max-height:45vh}.sec{padding:8px}}
+</style>
+</head>
+<body>
+
+<!-- Browser blocker -->
+<div id="blocker" class="hidden">
+<div class="ic">🏏</div>
+<h1>BowlIQ needs Safari or Chrome</h1>
+<p>You're viewing this inside the <strong id="detApp">Claude app</strong>.</p>
+<div class="box">
+<div class="st"><div class="sn">1</div><div class="sx"><strong>Download</strong> this file</div></div>
+<div class="st"><div class="sn">2</div><div class="sx">Open in <strong>Safari</strong> or <strong>Chrome</strong></div></div>
+<div class="st"><div class="sn">3</div><div class="sx">Or upload to <strong>GitHub Pages</strong> / <strong>Netlify Drop</strong></div></div>
+</div>
+</div>
+
+<div id="app">
+<!-- Header -->
+<div class="hdr">
+<div class="hdr-l"><div class="logo">🏏</div><div><div class="logo-t">BOWL<span>IQ</span></div><div class="logo-s">AI BOWLING ANALYZER</div></div></div>
+<div id="badge" class="badge hidden" style="background:#00ff8822;border:1px solid #00ff8844"><div class="dot" id="bdot" style="background:var(--g)"></div><span id="btxt" style="color:var(--g)">READY</span></div>
+</div>
+
+<!-- ===== SETUP SCREEN ===== -->
+<div id="sSetup" class="sec afade" style="max-width:500px;margin:0 auto">
+<div style="text-align:center;margin:20px 0 28px">
+<h1 style="font-size:26px;font-weight:900;margin-bottom:8px">AI Cricket Bowling<br><span style="color:var(--g)">Analysis System</span></h1>
+<p style="color:var(--td);font-size:14px;line-height:1.6">Uses AI pose detection to track the bowler's arm, detect the release point, then follow the ball.</p>
+</div>
+<div class="card" style="padding:18px;margin-bottom:14px">
+<h3 style="font-size:14px;font-weight:700;margin-bottom:12px;color:var(--g)">🤖 How it works</h3>
+<div style="display:flex;gap:10px;margin-bottom:10px"><div class="sn">1</div><div><div style="font-weight:600;font-size:13px">AI detects the bowler</div><div style="font-size:12px;color:var(--td)">MoveNet tracks 17 body keypoints in real-time</div></div></div>
+<div style="display:flex;gap:10px;margin-bottom:10px"><div class="sn">2</div><div><div style="font-weight:600;font-size:13px">Tracks the bowling arm</div><div style="font-size:12px;color:var(--td)">Follows shoulder→elbow→wrist through the delivery</div></div></div>
+<div style="display:flex;gap:10px;margin-bottom:10px"><div class="sn">3</div><div><div style="font-weight:600;font-size:13px">Detects ball release</div><div style="font-size:12px;color:var(--td)">When wrist velocity peaks and arm passes vertical</div></div></div>
+<div style="display:flex;gap:10px"><div class="sn">4</div><div><div style="font-weight:600;font-size:13px">Tracks the ball</div><div style="font-size:12px;color:var(--td)">Color segmentation follows ball down the pitch</div></div></div>
+</div>
+<div class="card" style="padding:18px;margin-bottom:14px">
+<h3 style="font-size:14px;font-weight:700;margin-bottom:12px;color:var(--o)">📐 Setup tips</h3>
+<div style="font-size:13px;color:var(--td);line-height:1.6">
+Position your phone <strong style="color:var(--t)">side-on</strong> to the pitch, ~15-20m away. Use a tripod or prop it up — keep it still. Good daylight works best.
+</div>
+</div>
+<div class="g2" style="margin-bottom:10px">
+<button class="btn btn-c" id="btnCam" style="font-size:13px">📷 Rear Camera</button>
+<button class="btn btn-c" id="btnHand" style="font-size:13px">🤚 Right Arm</button>
+</div>
+<div class="g2" style="margin-bottom:10px">
+<button class="btn btn-c" id="btnBall" style="font-size:13px">🔴 Red Ball</button>
+<button class="btn btn-c" id="btnSkipCalib" style="font-size:13px">⏩ Skip Calibration</button>
+</div>
+<button class="btn btn-g" id="btnGo" style="font-size:16px;padding:16px">🎯 Start Camera & Calibrate</button>
+</div>
+
+<!-- ===== LOADING SCREEN ===== -->
+<div id="sLoad" class="sec hidden afade">
+<div class="loader">
+<div class="spinner"></div>
+<h2 style="font-size:18px;margin-bottom:8px">Loading AI Model...</h2>
+<p style="color:var(--td);font-size:13px" id="loadMsg">Downloading MoveNet pose detection model. This may take a few seconds on first load.</p>
+</div>
+</div>
+
+<!-- ===== CALIBRATION SCREEN ===== -->
+<div id="sCalib" class="sec hidden afade">
+<div class="calib-msg" id="cMsg">👆 Tap the BOWLER'S END of the pitch</div>
+<div class="vidbox"><video id="vid1" autoplay playsinline muted></video><div class="calib-ovl" id="cOvr"></div></div>
+<button class="btn btn-c btn-sm" id="btnBack1" style="margin-top:10px;width:100%">← Back to Setup</button>
+</div>
+
+<!-- ===== LIVE TRACKING SCREEN ===== -->
+<div id="sLive" class="sec hidden afade" style="padding:10px">
+<div class="vidbox">
+<video id="vid2" autoplay playsinline muted></video>
+<canvas id="cHid" style="display:none"></canvas>
+<canvas id="cOvl"></canvas>
+<div class="ovl-phase hidden" id="phaseOvl"><span id="phaseTxt">WAITING</span></div>
+<div class="ovl-speed hidden" id="spOvl"><span id="spVal" style="font-size:20px;font-weight:800;color:var(--g);font-family:monospace">--</span></div>
+<div class="ovl-arm hidden" id="armOvl"><span id="armTxt">Arm: --°</span></div>
+</div>
+<div class="row" style="margin-top:10px;margin-bottom:12px">
+<button class="btn btn-g f1" id="btnTrack">🔴 Start Tracking</button>
+<button class="btn btn-r f1 hidden" id="btnStop">⏹ Stop & Analyze</button>
+<button class="btn btn-c btn-sm" id="btnRev">📊</button>
+</div>
+<div id="dStats" class="hidden">
+<div class="g3" style="margin-bottom:8px">
+<div class="card"><div class="glow" style="background:linear-gradient(90deg,transparent,var(--g),transparent)"></div><span class="lbl">⚡ Speed</span><div style="display:flex;align-items:baseline;gap:3px"><span class="val" id="dSp" style="color:var(--g)">--</span><span class="unit">km/h</span></div></div>
+<div class="card"><div class="glow" style="background:linear-gradient(90deg,transparent,var(--b),transparent)"></div><span class="lbl">📏 Length</span><div><span class="val" id="dLn" style="color:var(--b);font-size:1rem">--</span></div></div>
+<div class="card"><div class="glow" style="background:linear-gradient(90deg,transparent,var(--o),transparent)"></div><span class="lbl">🎯 Line</span><div><span class="val" id="dLi" style="color:var(--o);font-size:1rem">--</span></div></div>
+</div>
+<div class="g2" style="margin-bottom:8px">
+<div class="card" style="text-align:center"><span class="lbl">Release Angle</span><div class="val" id="dRA" style="color:var(--b);font-size:1.2rem">--°</div></div>
+<div class="card" style="text-align:center"><span class="lbl">Arm Speed</span><div class="val" id="dAS" style="color:var(--o);font-size:1.2rem">--°/s</div></div>
+</div>
+</div>
+<div id="dErr" class="hidden" style="background:#ffaa3315;border:1px solid #ffaa3333;border-radius:10px;padding:12px;color:var(--o);font-size:13px;text-align:center"></div>
+</div>
+
+<!-- ===== REVIEW SCREEN ===== -->
+<div id="sReview" class="sec hidden afade">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><h2 style="font-size:18px;font-weight:800">Session Analysis</h2><button class="btn btn-c btn-sm" id="btnBack2">← Back</button></div>
+<div class="g4" style="margin-bottom:14px">
+<div class="card"><div class="glow" style="background:linear-gradient(90deg,transparent,var(--g),transparent)"></div><span class="lbl">Balls</span><div class="val" id="rD" style="color:var(--g)">0</div></div>
+<div class="card"><div class="glow" style="background:linear-gradient(90deg,transparent,var(--r),transparent)"></div><span class="lbl">Top</span><div style="display:flex;align-items:baseline;gap:3px"><span class="val" id="rT" style="color:var(--r)">--</span><span class="unit">km/h</span></div></div>
+<div class="card"><div class="glow" style="background:linear-gradient(90deg,transparent,var(--g),transparent)"></div><span class="lbl">Avg</span><div style="display:flex;align-items:baseline;gap:3px"><span class="val" id="rA" style="color:var(--g)">--</span><span class="unit">km/h</span></div></div>
+<div class="card"><div class="glow" style="background:linear-gradient(90deg,transparent,var(--o),transparent)"></div><span class="lbl">Hit%</span><div style="display:flex;align-items:baseline;gap:3px"><span class="val" id="rH" style="color:var(--o)">0</span><span class="unit">%</span></div></div>
+</div>
+<div class="card hidden" id="scCard" style="padding:14px;margin-bottom:14px"><div class="sec-t">SPEED OVER SESSION</div><div class="speed-chart-scroll"><svg id="scSvg" height="120"></svg></div></div>
+<div class="card" style="padding:14px;margin-bottom:14px"><div class="sec-t">DELIVERY LOG</div><div id="dLog"><p style="color:var(--td);font-size:13px;text-align:center;padding:16px">No deliveries yet.</p></div></div>
+<div class="row"><button class="btn btn-g f1" id="btnBack3">🔴 Back to Live</button><button class="btn btn-c btn-sm" id="btnClr">🗑</button></div>
+</div>
+
+<div class="footer">BowlIQ v2.0 • AI Pose Detection + Ball Tracking • MoveNet Lightning</div>
+</div>
+
+<script>
+// ===== BROWSER CHECK =====
+!function(){var ua=navigator.userAgent.toLowerCase();if(ua.indexOf('claude/')>-1||ua.indexOf('electron')>-1||location.protocol==='about:'){document.getElementById('blocker').classList.remove('hidden');document.getElementById('app').classList.add('hidden');}}();
+
+// ===== GLOBALS =====
+var PITCH_LEN=20.12;
+var KP={NOSE:0,L_EYE:1,R_EYE:2,L_EAR:3,R_EAR:4,L_SHOULDER:5,R_SHOULDER:6,L_ELBOW:7,R_ELBOW:8,L_WRIST:9,R_WRIST:10,L_HIP:11,R_HIP:12,L_KNEE:13,R_KNEE:14,L_ANKLE:15,R_ANKLE:16};
+
+var S={
+  mode:'setup', tracking:false, detector:null, modelReady:false,
+  // Settings
+  hand:'right', ballColor:'red', facingMode:'environment', skipCalib:false,
+  // Calibration
+  calibStep:0, calibPts:[], ppm:null, stumpZone:null,
+  // Delivery state
+  phase:'idle', // idle → runup → arm_up → delivery → released → ball_flight
+  dels:[], pos:[],
+  // Pose tracking
+  armHistory:[], wristVelocities:[], releasePoint:null, releaseAngle:null,
+  peakWristSpeed:0, armAngle:0,
+  // Background for ball detection
+  bgFrames:[], bgReady:false, prevFrame:null,
+  lastBall:null, noDetect:0,
+  // Camera
+  stream:null, raf:null, fps:30
+};
+
+var $=function(id){return document.getElementById(id)};
+var scr={setup:$('sSetup'),load:$('sLoad'),calib:$('sCalib'),live:$('sLive'),review:$('sReview')};
+
+function show(n){for(var k in scr)scr[k].classList.add('hidden');scr[n].classList.remove('hidden');S.mode=n;$('badge').classList.toggle('hidden',n==='setup'||n==='load');if(n==='live'&&S.stream)transferStream();}
+function setBadge(text,color){$('bdot').style.background='var(--'+color+')';$('btxt').textContent=text;$('btxt').style.color='var(--'+color+')';$('badge').style.background='var(--'+color+')22';$('badge').style.borderColor='var(--'+color+')44';}
+
+// ===== BOWLING ARM KEYPOINT INDICES =====
+function getArmKPs(){
+  // For a side-on camera view, the bowling arm is:
+  // Right-handed bowler: right shoulder(6), right elbow(8), right wrist(10)
+  // Left-handed bowler: left shoulder(5), left elbow(7), left wrist(9)
+  if(S.hand==='right') return {shoulder:KP.R_SHOULDER, elbow:KP.R_ELBOW, wrist:KP.R_WRIST, hip:KP.R_HIP};
+  return {shoulder:KP.L_SHOULDER, elbow:KP.L_ELBOW, wrist:KP.L_WRIST, hip:KP.L_HIP};
+}
+
+// ===== ARM ANGLE CALCULATION =====
+// Returns angle of wrist relative to shoulder (0° = level, 90° = straight up, -90° = straight down)
+function calcArmAngle(shoulder, wrist){
+  var dx=wrist.x-shoulder.x, dy=shoulder.y-wrist.y; // dy inverted: up is positive
+  return Math.atan2(dy, Math.abs(dx)) * (180/Math.PI);
+}
+
+// Elbow angle (bend in degrees, 180 = straight)
+function calcElbowAngle(shoulder, elbow, wrist){
+  var a={x:shoulder.x-elbow.x, y:shoulder.y-elbow.y};
+  var b={x:wrist.x-elbow.x, y:wrist.y-elbow.y};
+  var dot=a.x*b.x+a.y*b.y;
+  var magA=Math.sqrt(a.x*a.x+a.y*a.y);
+  var magB=Math.sqrt(b.x*b.x+b.y*b.y);
+  if(magA<1||magB<1) return 180;
+  return Math.acos(Math.max(-1,Math.min(1,dot/(magA*magB))))*(180/Math.PI);
+}
+
+// ===== BOWLING PHASE DETECTION =====
+function detectPhase(keypoints, vw, vh){
+  var arm=getArmKPs();
+  var sh=keypoints[arm.shoulder], el=keypoints[arm.elbow], wr=keypoints[arm.wrist], hp=keypoints[arm.hip];
+  var nose=keypoints[KP.NOSE];
+
+  // Check confidence - need at least shoulder and wrist
+  if(!sh||!wr||sh.score<0.3||wr.score<0.3) return;
+
+  var angle=calcArmAngle(sh,wr);
+  S.armAngle=Math.round(angle);
+
+  // Track wrist position history (for velocity calculation)
+  var now=Date.now();
+  S.armHistory.push({x:wr.x, y:wr.y, angle:angle, t:now, sh:{x:sh.x,y:sh.y}});
+  if(S.armHistory.length>30) S.armHistory.shift(); // keep last 30 frames (~1 sec)
+
+  // Calculate wrist angular velocity (degrees per second)
+  var angVel=0;
+  if(S.armHistory.length>=3){
+    var h=S.armHistory;
+    var i=h.length-1;
+    var dt=(h[i].t-h[i-2].t)/1000;
+    if(dt>0) angVel=Math.abs(h[i].angle-h[i-2].angle)/dt;
+  }
+  S.wristVelocities.push(angVel);
+  if(S.wristVelocities.length>20) S.wristVelocities.shift();
+
+  // Calculate wrist linear speed (pixels per second)
+  var wristSpeed=0;
+  if(S.armHistory.length>=2){
+    var h=S.armHistory, i=h.length-1;
+    var dx=h[i].x-h[i-1].x, dy=h[i].y-h[i-1].y;
+    var dt=(h[i].t-h[i-1].t)/1000;
+    if(dt>0) wristSpeed=Math.sqrt(dx*dx+dy*dy)/dt;
+  }
+
+  // Phase state machine
+  var prevPhase=S.phase;
+
+  if(S.phase==='idle'){
+    // Detect run-up: person moving horizontally, arm below shoulder
+    if(nose&&nose.score>0.3&&angle<20){
+      S.phase='runup';
+    }
+  }
+  else if(S.phase==='runup'){
+    // Arm starting to rise above horizontal
+    if(angle>30){
+      S.phase='arm_up';
+    }
+  }
+  else if(S.phase==='arm_up'){
+    // Arm rising through delivery arc
+    // Detect peak: arm near vertical (>70°) or wrist above head
+    if(angle>70 || (nose&&wr.y<nose.y)){
+      S.phase='delivery';
+      S.peakWristSpeed=0;
+    }
+  }
+  else if(S.phase==='delivery'){
+    // Track peak angular velocity — release happens at or just after peak
+    if(angVel>S.peakWristSpeed) S.peakWristSpeed=angVel;
+
+    // Release detection conditions:
+    // 1. Arm has passed vertical (angle decreasing from peak, now <60°)
+    // 2. OR wrist is below shoulder again after being above
+    // 3. AND there was significant angular velocity (>200°/s indicates bowling not just waving)
+    var armDescending=angle<50 && S.armHistory.length>5 &&
+      S.armHistory[S.armHistory.length-5].angle>angle;
+
+    if(armDescending && S.peakWristSpeed>100){
+      S.phase='released';
+      // Record release point
+      S.releasePoint={x:wr.x, y:wr.y, t:now};
+      S.releaseAngle=Math.round(angle);
+      // Start ball tracking mode
+      S.bgFrames=[];S.bgReady=false;S.lastBall=null;S.noDetect=0;
+      setTimeout(function(){
+        if(S.phase==='released') S.phase='ball_flight';
+      },100);
+    }
+  }
+  else if(S.phase==='released'){
+    // Brief transition — handled by timeout above
+  }
+
+  return{angle:S.armAngle, angVel:Math.round(angVel), wristSpeed:Math.round(wristSpeed), phase:S.phase};
+}
+
+// ===== BALL COLOR DETECTION (HSV) =====
+function rgb2hsv(r,g,b){
+  r/=255;g/=255;b/=255;var mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn,h=0,s=mx?d/mx*100:0,v=mx*100;
+  if(d){if(mx===r)h=60*((g-b)/d%6);else if(mx===g)h=60*((b-r)/d+2);else h=60*((r-g)/d+4);}
+  if(h<0)h+=360;return{h:h,s:s,v:v};
+}
+function isBallColor(r,g,b){
+  var hsv=rgb2hsv(r,g,b);
+  if(S.ballColor==='red') return((hsv.h<18||hsv.h>335)&&hsv.s>25&&hsv.v>20)||(hsv.h>=18&&hsv.h<40&&hsv.s>30&&hsv.v>30);
+  if(S.ballColor==='white') return(hsv.s<20&&hsv.v>70);
+  return((hsv.h<18||hsv.h>335)&&hsv.s>25&&hsv.v>20)||(hsv.s<20&&hsv.v>70);
+}
+
+// ===== BALL DETECTION POST-RELEASE =====
+function updateBg(data,w,h){
+  if(S.bgFrames.length<8){S.bgFrames.push(new Uint8Array(data));if(S.bgFrames.length===8)S.bgReady=true;return;}
+  var bg=S.bgFrames[0];
+  for(var i=0;i<data.length;i+=4){
+    var d=Math.abs(data[i]-bg[i])+Math.abs(data[i+1]-bg[i+1])+Math.abs(data[i+2]-bg[i+2]);
+    if(d<30){bg[i]=Math.round(bg[i]*.95+data[i]*.05);bg[i+1]=Math.round(bg[i+1]*.95+data[i+1]*.05);bg[i+2]=Math.round(bg[i+2]*.95+data[i+2]*.05);}
+  }
+}
+
+function detectBall(data,w,h){
+  var bg=S.bgReady?S.bgFrames[0]:null;if(!bg)return null;
+  var best=null,bestScore=0;var cs=4;
+  var blobMap={};
+  for(var y=0;y<h;y+=cs){for(var x=0;x<w;x+=cs){
+    var i=(y*w+x)*4;var r=data[i],g=data[i+1],b=data[i+2];
+    if(!isBallColor(r,g,b))continue;
+    var md=Math.abs(r-bg[i])+Math.abs(g-bg[i+1])+Math.abs(b-bg[i+2]);
+    if(md<45)continue;
+    var gx=Math.floor(x/16),gy=Math.floor(y/16),k=gx+','+gy;
+    if(!blobMap[k])blobMap[k]={sx:0,sy:0,n:0,mnX:w,mnY:h,mxX:0,mxY:0};
+    var bl=blobMap[k];bl.sx+=x;bl.sy+=y;bl.n++;
+    if(x<bl.mnX)bl.mnX=x;if(y<bl.mnY)bl.mnY=y;if(x>bl.mxX)bl.mxX=x;if(y>bl.mxY)bl.mxY=y;
+  }}
+  for(var k in blobMap){
+    var bl=blobMap[k];if(bl.n<2)continue;
+    var bw=bl.mxX-bl.mnX+cs,bh=bl.mxY-bl.mnY+cs,sz=Math.max(bw,bh);
+    if(sz<3||sz>80)continue;
+    var asp=Math.min(bw,bh)/Math.max(bw,bh);if(asp<0.3)continue;
+    var sc=100+asp*50+Math.max(0,50-sz);
+    if(S.lastBall&&S.pos.length>0){
+      var px=bl.sx/bl.n,py=bl.sy/bl.n;
+      var d=Math.sqrt(Math.pow(px-S.lastBall.x,2)+Math.pow(py-S.lastBall.y,2));
+      if(d>150)sc-=200;else sc+=Math.max(0,100-d);
+    }
+    if(sc>bestScore){bestScore=sc;best={x:bl.sx/bl.n,y:bl.sy/bl.n,sc:sc};}
+  }
+  return best&&best.sc>50?best:null;
+}
+
+function validateTrajectory(nx,ny){
+  if(S.pos.length<2)return true;
+  var p=S.pos,l=p.length;
+  var dx=nx-p[l-1].x,dy=ny-p[l-1].y,dist=Math.sqrt(dx*dx+dy*dy);
+  if(dist>200)return false;
+  if(l>=3){var px=p[l-1].x-p[l-2].x,py=p[l-1].y-p[l-2].y,pd=Math.sqrt(px*px+py*py);
+    if(pd>5){var dot=dx*px+dy*py,cos=dot/(dist*pd+.001);if(cos<-.3)return false;}}
+  return true;
+}
+
+// ===== SPEED / ANALYSIS =====
+function calcSpeed(pos,fps,ppm){
+  if(pos.length<2||!ppm)return null;
+  var d=0;for(var i=1;i<pos.length;i++){var dx=pos[i].x-pos[i-1].x,dy=pos[i].y-pos[i-1].y;d+=Math.sqrt(dx*dx+dy*dy);}
+  var m=d/ppm,t=(pos.length-1)/fps;if(!t)return null;var mps=m/t;
+  return{kmh:Math.round(mps*3.6),mph:Math.round(mps*2.237)};
+}
+function predTraj(p){if(p.length<3)return null;var l=p.slice(-3),ax=((l[1].x-l[0].x)+(l[2].x-l[1].x))/2,ay=((l[1].y-l[0].y)+(l[2].y-l[1].y))/2,r=[];var cx=l[2].x,cy=l[2].y;for(var i=0;i<20;i++){cx+=ax;cy+=ay+i*.5;r.push({x:cx,y:cy});}return r;}
+function classifyLen(y,h){if(!y||!h)return'Unknown';var r=y/h;if(r<.25)return'Short';if(r<.4)return'Back of Length';if(r<.55)return'Good Length';if(r<.7)return'Full';if(r<.85)return'Full Toss';return'Yorker';}
+function classifyLine(x,w){if(!x||!w)return'Unknown';var r=x/w;if(r<.3)return'Outside Off';if(r<.4)return'Off Stump';if(r<.5)return'Middle';if(r<.6)return'Leg Stump';if(r<.7)return'Down Leg';return'Wide Leg';}
+function stumpHit(pred,sz){if(!pred||!sz)return{hitting:false,confidence:0};for(var i=0;i<pred.length;i++){var p=pred[i];if(p.x>=sz.x&&p.x<=sz.x+sz.w&&p.y>=sz.y&&p.y<=sz.y+sz.h)return{hitting:true,confidence:75+Math.random()*20};}var mn=1e9;for(var i=0;i<pred.length;i++){var p=pred[i],d=Math.sqrt(Math.pow(p.x-(sz.x+sz.w/2),2)+Math.pow(p.y-(sz.y+sz.h/2),2));if(d<mn)mn=d;}var mx=sz.w*3;if(mn<mx)return{hitting:false,confidence:Math.max(0,100-(mn/mx)*100),missBy:mn<sz.w?'Narrowly':'Comfortably'};return{hitting:false,confidence:0,missBy:'Wide'};}
+
+// ===== CAMERA =====
+async function startCam(){
+  try{
+    if(S.stream)S.stream.getTracks().forEach(function(t){t.stop();});
+    var stream;
+    try{stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:S.facingMode},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}}});}
+    catch(e){stream=await navigator.mediaDevices.getUserMedia({audio:false,video:true});}
+    S.stream=stream;
+    var v=S.mode==='calib'?$('vid1'):$('vid2');
+    v.srcObject=stream;v.muted=true;v.setAttribute('playsinline','true');v.setAttribute('autoplay','true');v.setAttribute('webkit-playsinline','true');
+    await new Promise(function(r){if(v.readyState>=2){r();return;}v.addEventListener('loadeddata',r,{once:true});setTimeout(r,4000);});
+    try{await v.play();}catch(e){
+      var tap=document.createElement('div');
+      tap.style.cssText='position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);color:var(--g);font-size:18px;font-weight:700;z-index:20;cursor:pointer';
+      tap.textContent='👆 Tap to start camera';
+      v.parentElement.appendChild(tap);
+      tap.onclick=tap.ontouchend=function(){v.play().then(function(){tap.remove();});};
+    }
+  }catch(e){alert('Camera error: '+e.message);}
+}
+function transferStream(){
+  if(S.stream){var v=$('vid2');v.srcObject=S.stream;v.muted=true;v.setAttribute('playsinline','true');v.setAttribute('autoplay','true');v.play().catch(function(){});}
+}
+function stopCam(){if(S.stream){S.stream.getTracks().forEach(function(t){t.stop();});S.stream=null;}if(S.raf)cancelAnimationFrame(S.raf);}
+
+// ===== AI MODEL LOADING =====
+async function loadModel(){
+  show('load');
+  try{
+    $('loadMsg').textContent='Initializing TensorFlow.js backend...';
+    await tf.ready();
+    $('loadMsg').textContent='Loading MoveNet Lightning model...';
+    S.detector=await poseDetection.createDetector(
+      poseDetection.SupportedModels.MoveNet,
+      {modelType:poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING}
+    );
+    S.modelReady=true;
+    $('loadMsg').textContent='Model loaded! Starting camera...';
+    await startCam();
+    if(S.skipCalib){show('live');}else{show('calib');}
+  }catch(e){
+    $('loadMsg').textContent='Error loading model: '+e.message+'. Check your internet connection.';
+    console.error(e);
+  }
+}
+
+// ===== CALIBRATION =====
+var calibTouched=false;
+function doCalib(x,y){
+  var v=$('vid1'),r=$('cOvr').getBoundingClientRect();
+  var sx=(v.videoWidth||640)/r.width,sy=(v.videoHeight||480)/r.height;
+  var cx=x*sx,cy=y*sy;
+  if(S.calibStep===0){S.calibPts=[{x:cx,y:cy}];addDot(x,y);S.calibStep=1;$('cMsg').textContent='👆 Now tap the BATTER\'S END';}
+  else if(S.calibStep===1){S.calibPts.push({x:cx,y:cy});addDot(x,y);var p=S.calibPts[0];S.ppm=Math.sqrt(Math.pow(cx-p.x,2)+Math.pow(cy-p.y,2))/PITCH_LEN;S.calibStep=2;$('cMsg').textContent='👆 Now tap CENTER of STUMPS';}
+  else if(S.calibStep===2){S.stumpZone={x:cx-30,y:cy-50,w:60,h:100};S.calibStep=3;show('live');}
+}
+$('cOvr').addEventListener('touchstart',function(){calibTouched=true;},{passive:true});
+$('cOvr').addEventListener('touchend',function(e){e.preventDefault();var t=e.changedTouches[0],r=this.getBoundingClientRect();doCalib(t.clientX-r.left,t.clientY-r.top);},{passive:false});
+$('cOvr').addEventListener('click',function(e){if(calibTouched){calibTouched=false;return;}var r=this.getBoundingClientRect();doCalib(e.clientX-r.left,e.clientY-r.top);});
+function addDot(x,y){var d=document.createElement('div');d.className='calib-dot';d.style.left=x+'px';d.style.top=y+'px';$('cOvr').appendChild(d);}
+
+// ===== MAIN TRACKING LOOP =====
+async function trackLoop(){
+  var vid=$('vid2'),can=$('cHid');
+  if(!vid||!can||vid.readyState<2||!S.modelReady){S.raf=requestAnimationFrame(trackLoop);return;}
+
+  var vw=vid.videoWidth||640,vh=vid.videoHeight||480;
+  var oc=$('cOvl'),ox=oc.getContext('2d');
+  oc.width=vw;oc.height=vh;ox.clearRect(0,0,vw,vh);
+
+  // Run pose detection
+  var poses=[];
+  try{poses=await S.detector.estimatePoses(vid);}catch(e){}
+
+  if(S.tracking&&poses.length>0){
+    var kp=poses[0].keypoints;
+    var armKP=getArmKPs();
+
+    // Draw skeleton (bowling arm highlighted)
+    drawSkeleton(ox,kp,vw,vh);
+
+    // Run phase detection
+    var info=detectPhase(kp,vw,vh);
+    if(info){
+      // Update overlays
+      $('phaseOvl').classList.remove('hidden');
+      $('armOvl').classList.remove('hidden');
+      var phaseLabels={idle:'⏳ WAITING',runup:'🏃 RUN-UP',arm_up:'💪 ARM RISING',delivery:'🔥 DELIVERY',released:'✅ RELEASED',ball_flight:'🏏 BALL FLIGHT'};
+      var phaseColors={idle:'var(--td)',runup:'var(--b)',arm_up:'var(--o)',delivery:'var(--r)',released:'var(--g)',ball_flight:'var(--g)'};
+      $('phaseTxt').textContent=phaseLabels[S.phase]||S.phase;
+      $('phaseTxt').style.color=phaseColors[S.phase]||'var(--t)';
+      $('armTxt').textContent='Arm: '+info.angle+'° | '+info.angVel+'°/s';
+
+      // Draw bowling arm region of interest
+      var sh=kp[armKP.shoulder],wr=kp[armKP.wrist],el=kp[armKP.elbow];
+      if(sh&&wr&&sh.score>.3&&wr.score>.3){
+        // Highlight arm path with glow
+        ox.strokeStyle=S.phase==='delivery'?'#ff4466':'#00ff88';
+        ox.lineWidth=4;ox.lineCap='round';
+        ox.shadowColor=S.phase==='delivery'?'#ff4466':'#00ff88';
+        ox.shadowBlur=12;
+        ox.beginPath();ox.moveTo(sh.x,sh.y);
+        if(el&&el.score>.3)ox.lineTo(el.x,el.y);
+        ox.lineTo(wr.x,wr.y);ox.stroke();
+        ox.shadowBlur=0;
+
+        // Draw wrist circle (ball location before release)
+        if(S.phase!=='released'&&S.phase!=='ball_flight'){
+          ox.beginPath();ox.arc(wr.x,wr.y,14,0,Math.PI*2);
+          ox.fillStyle=S.phase==='delivery'?'#ff446688':'#00ff8844';ox.fill();
+          ox.strokeStyle='#fff';ox.lineWidth=2;ox.stroke();
+          ox.fillStyle='#fff';ox.font='bold 9px monospace';ox.textAlign='center';
+          ox.fillText('BALL',wr.x,wr.y+3);
+        }
+
+        // Draw release point marker
+        if(S.releasePoint){
+          ox.beginPath();ox.arc(S.releasePoint.x,S.releasePoint.y,10,0,Math.PI*2);
+          ox.fillStyle='#ffaa3388';ox.fill();
+          ox.strokeStyle='#ffaa33';ox.lineWidth=2;ox.stroke();
+          ox.fillStyle='#ffaa33';ox.font='bold 10px monospace';ox.textAlign='center';
+          ox.fillText('RELEASE',S.releasePoint.x,S.releasePoint.y-16);
+        }
+      }
+    }
+
+    // Ball tracking (after release)
+    if(S.phase==='ball_flight'){
+      // Process at half res for speed
+      var pw=Math.floor(vw/2),ph=Math.floor(vh/2);
+      can.width=pw;can.height=ph;
+      var ctx=can.getContext('2d',{willReadFrequently:true});
+      ctx.drawImage(vid,0,0,pw,ph);
+      var frame=ctx.getImageData(0,0,pw,ph);
+      updateBg(frame.data,pw,ph);
+      if(S.bgReady){
+        var ball=detectBall(frame.data,pw,ph);
+        if(ball&&ball.sc>50){
+          var fx=ball.x*2,fy=ball.y*2;
+          if(validateTrajectory(fx,fy)){
+            S.pos.push({x:fx,y:fy,t:Date.now()});
+            S.lastBall={x:fx,y:fy};S.noDetect=0;
+          }
+        }else{S.noDetect++;}
+      }
+      // Draw ball trail
+      if(S.pos.length>1){
+        ox.strokeStyle='#00ff88';ox.lineWidth=3;ox.lineCap='round';
+        ox.shadowColor='#00ff88';ox.shadowBlur=8;
+        ox.beginPath();ox.moveTo(S.pos[0].x,S.pos[0].y);
+        for(var i=1;i<S.pos.length;i++)ox.lineTo(S.pos[i].x,S.pos[i].y);
+        ox.stroke();ox.shadowBlur=0;
+        var pr=predTraj(S.pos);
+        if(pr){ox.strokeStyle='#ff446666';ox.lineWidth=2;ox.setLineDash([8,6]);ox.beginPath();ox.moveTo(S.pos[S.pos.length-1].x,S.pos[S.pos.length-1].y);for(var j=0;j<pr.length;j++)ox.lineTo(pr[j].x,pr[j].y);ox.stroke();ox.setLineDash([]);}
+      }
+      if(S.lastBall&&S.noDetect<5){
+        ox.beginPath();ox.arc(S.lastBall.x,S.lastBall.y,10,0,Math.PI*2);
+        ox.fillStyle='#ff4466';ox.fill();ox.strokeStyle='#fff';ox.lineWidth=2;ox.stroke();
+      }
+      if(S.stumpZone){ox.strokeStyle='#ffaa3366';ox.lineWidth=2;ox.setLineDash([6,4]);ox.strokeRect(S.stumpZone.x,S.stumpZone.y,S.stumpZone.w,S.stumpZone.h);ox.setLineDash([]);}
+      // Detection counter
+      ox.fillStyle='#fff';ox.font='11px monospace';ox.textAlign='left';ox.fillText('Ball: '+S.pos.length+' pts',8,vh-8);
+    }
+  }
+  else if(poses.length>0){
+    // Not tracking, but still draw skeleton for preview
+    drawSkeleton(ox,poses[0].keypoints,vw,vh);
+  }
+
+  S.raf=requestAnimationFrame(trackLoop);
+}
+
+// ===== DRAW SKELETON =====
+function drawSkeleton(ctx,kp,w,h){
+  var arm=getArmKPs();
+  var connections=[[5,7],[7,9],[6,8],[8,10],[5,6],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
+  // Draw body connections
+  ctx.lineWidth=2;ctx.lineCap='round';
+  for(var i=0;i<connections.length;i++){
+    var a=kp[connections[i][0]],b=kp[connections[i][1]];
+    if(!a||!b||a.score<0.25||b.score<0.25)continue;
+    // Highlight bowling arm connections
+    var isArm=(connections[i][0]===arm.shoulder&&connections[i][1]===arm.elbow)||
+              (connections[i][0]===arm.elbow&&connections[i][1]===arm.wrist);
+    ctx.strokeStyle=isArm?'#00ff88':'#ffffff44';
+    ctx.lineWidth=isArm?3:1.5;
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+  }
+  // Draw keypoints
+  for(var i=0;i<kp.length;i++){
+    if(!kp[i]||kp[i].score<0.25)continue;
+    var isArmPt=(i===arm.shoulder||i===arm.elbow||i===arm.wrist);
+    ctx.beginPath();ctx.arc(kp[i].x,kp[i].y,isArmPt?5:3,0,Math.PI*2);
+    ctx.fillStyle=isArmPt?'#00ff88':'#ffffff88';ctx.fill();
+    if(isArmPt){ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();}
+  }
+}
+
+// ===== START / STOP TRACKING =====
+function startTrack(){
+  S.tracking=true;S.phase='idle';S.pos=[];S.armHistory=[];S.wristVelocities=[];
+  S.releasePoint=null;S.releaseAngle=null;S.peakWristSpeed=0;
+  S.bgFrames=[];S.bgReady=false;S.lastBall=null;S.noDetect=0;S.prevFrame=null;
+  $('btnTrack').classList.add('hidden');$('btnStop').classList.remove('hidden');
+  $('dStats').classList.add('hidden');$('dErr').classList.add('hidden');$('spOvl').classList.add('hidden');
+  setBadge('TRACKING','r');$('bdot').style.animation='pulse 1s infinite';
+  S.raf=requestAnimationFrame(trackLoop);
+}
+
+function stopTrack(){
+  S.tracking=false;
+  $('btnTrack').classList.remove('hidden');$('btnStop').classList.add('hidden');
+  $('phaseOvl').classList.add('hidden');$('armOvl').classList.add('hidden');
+  setBadge('READY','g');$('bdot').style.animation='none';
+  if(S.raf)cancelAnimationFrame(S.raf);
+
+  // Analyze
+  if(S.pos.length>=2||S.releasePoint){
+    var vid=$('vid2'),vH=vid.videoHeight||480,vW=vid.videoWidth||640;
+    var sp=calcSpeed(S.pos,S.fps,S.ppm);
+    var pr=predTraj(S.pos),sr=stumpHit(pr,S.stumpZone);
+    var mid=S.pos.length>0?S.pos[Math.floor(S.pos.length/2)]:{x:vW/2,y:vH/2};
+    var d={
+      speed:sp,stumpResult:sr,
+      length:classifyLen(mid.y,vH),line:classifyLine(mid.x,vW),
+      lengthRatio:mid.y/vH, hitting:sr?sr.hitting:false,
+      releaseAngle:S.releaseAngle, peakArmSpeed:Math.round(S.peakWristSpeed)
+    };
+    S.dels.push(d);
+    $('dStats').classList.remove('hidden');
+    $('dSp').textContent=d.speed?d.speed.kmh:'--';
+    $('dLn').textContent=d.length;$('dLi').textContent=d.line;
+    $('dRA').textContent=(d.releaseAngle||'--')+'°';
+    $('dAS').textContent=(d.peakArmSpeed||'--')+'°/s';
+    if(d.speed){$('spOvl').classList.remove('hidden');$('spVal').textContent=d.speed.kmh+' km/h';}
+  }else{
+    $('dErr').classList.remove('hidden');
+    $('dErr').textContent=S.releasePoint?'⚠️ Ball release detected but couldn\'t track ball path.':'⚠️ No bowling action detected. Make sure the bowler is visible.';
+  }
+  // Restart tracking loop for preview
+  S.raf=requestAnimationFrame(trackLoop);
+}
+
+// ===== REVIEW =====
+function updateReview(){
+  var ds=S.dels,sp=[];ds.forEach(function(d){if(d.speed)sp.push(d.speed.kmh);});
+  $('rD').textContent=ds.length;
+  $('rT').textContent=sp.length?Math.max.apply(null,sp):'--';
+  $('rA').textContent=sp.length?Math.round(sp.reduce(function(a,b){return a+b},0)/sp.length):'--';
+  $('rH').textContent=ds.length?Math.round(ds.filter(function(d){return d.hitting}).length/ds.length*100):0;
+  if(ds.length){
+    $('scCard').classList.remove('hidden');
+    var sw=Math.max(ds.length*50,300),b='';
+    ds.forEach(function(d,i){var s=d.speed?d.speed.kmh:0,h=(s/160)*90,x=i*50+20;
+      var c=s>140?'#ff4466':s>120?'#ffaa33':s>90?'#00ff88':'#3399ff';
+      b+='<rect x="'+x+'" y="'+(100-h)+'" width="30" height="'+h+'" rx="4" fill="'+c+'" opacity="0.7"/>';
+      b+='<text x="'+(x+15)+'" y="'+(100-h-5)+'" text-anchor="middle" fill="'+c+'" font-size="10" font-weight="700" font-family="monospace">'+(s||'?')+'</text>';
+      b+='<text x="'+(x+15)+'" y="115" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="monospace">#'+(i+1)+'</text>';
+    });$('scSvg').setAttribute('width',sw);$('scSvg').setAttribute('viewBox','0 0 '+sw+' 120');$('scSvg').innerHTML=b;
+  }else $('scCard').classList.add('hidden');
+  $('dLog').innerHTML=ds.length?ds.map(function(d,i){
+    return'<div class="drow"><span style="color:var(--td);min-width:22px">#'+(i+1)+'</span><span style="color:var(--g);font-weight:700;min-width:55px">'+(d.speed?d.speed.kmh:'?')+' km/h</span><span style="color:var(--b);min-width:65px">'+d.length+'</span><span style="color:var(--o);min-width:65px">'+d.line+'</span><span style="color:#94a3b8;min-width:40px">'+(d.releaseAngle?d.releaseAngle+'°':'--')+'</span><span style="color:'+(d.hitting?'var(--r)':'var(--g)')+';font-weight:700;margin-left:auto">'+(d.hitting?'HIT':'MISS')+'</span></div>'
+  }).join(''):'<p style="color:var(--td);font-size:13px;text-align:center;padding:16px">No deliveries yet.</p>';
+}
+
+// ===== EVENTS =====
+$('btnCam').onclick=function(){S.facingMode=S.facingMode==='environment'?'user':'environment';this.textContent=S.facingMode==='environment'?'📷 Rear Camera':'📷 Front Camera';};
+$('btnHand').onclick=function(){S.hand=S.hand==='right'?'left':'right';this.textContent=S.hand==='right'?'🤚 Right Arm':'🤚 Left Arm';};
+$('btnBall').onclick=function(){var c=['red','white','auto'],l=['🔴 Red Ball','⚪ White Ball','🎯 Auto'];var i=(c.indexOf(S.ballColor)+1)%c.length;S.ballColor=c[i];this.textContent=l[i];};
+$('btnSkipCalib').onclick=function(){S.skipCalib=!S.skipCalib;this.textContent=S.skipCalib?'✅ Skip Calibration':'⏩ Skip Calibration';this.style.borderColor=S.skipCalib?'var(--g)':'var(--cb)';};
+$('btnGo').onclick=function(){S.calibStep=0;S.calibPts=[];$('cMsg').textContent='👆 Tap the BOWLER\'S END';$('cOvr').querySelectorAll('.calib-dot').forEach(function(d){d.remove();});loadModel();};
+$('btnBack1').onclick=function(){stopCam();show('setup');};
+$('btnTrack').onclick=startTrack;
+$('btnStop').onclick=stopTrack;
+$('btnRev').onclick=function(){updateReview();show('review');};
+$('btnBack2').onclick=$('btnBack3').onclick=function(){show('live');S.raf=requestAnimationFrame(trackLoop);};
+$('btnClr').onclick=function(){S.dels=[];updateReview();};
+
+show('setup');
+</script>
+</body>
+</html>
